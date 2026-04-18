@@ -20,11 +20,13 @@ from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QObject
 from PyQt6.QtGui import QPixmap, QIcon, QFont
 
 # ==================== CONFIG ====================
+APP_NAME = "HighResVault"
 BOARDS = ["hr"]
 DEFAULT_DIR = "4chan_downloads"
 STATE_FILE = "download_state.json"
 CHECK_INTERVAL = 600  
 HEADERS = {"User-Agent": "4chan-Triage-Downloader/4.0"}
+ICON_PATH = "4chan.ico" # Ensure this file is in the same folder!
 
 # ==================== MODERN STYLESHEET ====================
 STYLE_SHEET = """
@@ -107,6 +109,7 @@ class ManageDialog(QDialog):
     def __init__(self, state, state_lock, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Manage Threads")
+        self.setWindowIcon(QIcon(ICON_PATH)) # Set dialog icon
         self.resize(800, 500)
         self.state, self.state_lock = state, state_lock
         self.changes_made = False
@@ -143,7 +146,11 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("4chan Triage Downloader")
+        self.setWindowTitle(APP_NAME)
+        # Set the Window Icon for Taskbar and Top-Left corner
+        if os.path.exists(ICON_PATH):
+            self.setWindowIcon(QIcon(ICON_PATH))
+            
         self.resize(1200, 800)
         self.state_lock = threading.Lock()
         self.state = self.load_state()
@@ -319,9 +326,13 @@ class MainWindow(QMainWindow):
     # ==================== UPDATED TRAY LOGIC ====================
     def minimize_to_tray(self):
         self.hide()
-        icon_img = PILImage.new('RGB', (64, 64), (30, 150, 100))
-        # Use a lambda for Restore to trigger the signal properly
-        self.tray = pystray.Icon("4chan", icon_img, "4chan Triage", menu=pystray.Menu(
+        # Use the real .ico file for the tray icon instead of a green square
+        if os.path.exists(ICON_PATH):
+            icon_img = PILImage.open(ICON_PATH)
+        else:
+            icon_img = PILImage.new('RGB', (64, 64), (30, 150, 100))
+            
+        self.tray = pystray.Icon("4chan", icon_img, APP_NAME, menu=pystray.Menu(
             pystray.MenuItem("Restore", lambda: self.restore_window.emit()), 
             pystray.MenuItem("Exit", self.full_exit)))
         threading.Thread(target=self.tray.run, daemon=True).start()
@@ -330,9 +341,9 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'tray'): 
             self.tray.stop()
         self.show()
-        self.showNormal() # Ensures it's not minimized to the taskbar
-        self.activateWindow() # Forces Windows to focus the window
-        self.raise_() # Brings it to the very top
+        self.showNormal() 
+        self.activateWindow() 
+        self.raise_() 
 
     def full_exit(self):
         self.is_running = False
