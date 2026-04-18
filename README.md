@@ -11,4 +11,4 @@ I suggest using the .exe version that you find on releases rather than the .py v
 
 pip install -r requirements.txt
 
-<img width="1919" height="1079" alt="image" src="https://github.com/user-attachments/assets/28716945-90a3-4d73-b196-87f2e90aa411" />
+
