@@ -26,7 +26,7 @@ DEFAULT_DIR = "4chan_downloads"
 STATE_FILE = "download_state.json"
 CHECK_INTERVAL = 600  
 HEADERS = {"User-Agent": "4chan-Triage-Downloader/4.0"}
-ICON_PATH = "4chan.ico" # Ensure this file is in the same folder!
+ICON_PATH = "4chan.ico" 
 
 # ==================== MODERN STYLESHEET ====================
 STYLE_SHEET = """
@@ -109,7 +109,7 @@ class ManageDialog(QDialog):
     def __init__(self, state, state_lock, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Manage Threads")
-        self.setWindowIcon(QIcon(ICON_PATH)) # Set dialog icon
+        self.setWindowIcon(QIcon(ICON_PATH))
         self.resize(800, 500)
         self.state, self.state_lock = state, state_lock
         self.changes_made = False
@@ -147,7 +147,6 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        # Set the Window Icon for Taskbar and Top-Left corner
         if os.path.exists(ICON_PATH):
             self.setWindowIcon(QIcon(ICON_PATH))
             
@@ -326,7 +325,6 @@ class MainWindow(QMainWindow):
     # ==================== UPDATED TRAY LOGIC ====================
     def minimize_to_tray(self):
         self.hide()
-        # Use the real .ico file for the tray icon instead of a green square
         if os.path.exists(ICON_PATH):
             icon_img = PILImage.open(ICON_PATH)
         else:
