@@ -5,10 +5,10 @@ import time
 import sys
 import html
 import re
+import threading
 from datetime import datetime
 from PIL import Image as PILImage
 import pystray
-import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from PyQt6.QtWidgets import (
@@ -55,6 +55,7 @@ QPushButton {
     font-weight: bold;
 }
 QPushButton:hover { background-color: #45475a; }
+QPushButton:disabled { color: #585b70; background-color: #181825; }
 QListWidget {
     background-color: #11111b;
     border: 1px solid #313244;
@@ -136,7 +137,9 @@ class ManageDialog(QDialog):
         item = list_widget.takeItem(row)
         if item:
             board, tno = item.data(Qt.ItemDataRole.UserRole)
-            with self.state_lock: self.state[key][board].remove(tno)
+            with self.state_lock: 
+                if tno in self.state[key][board]:
+                    self.state[key][board].remove(tno)
             self.changes_made = True
 
 # ==================== MAIN UI ====================
@@ -222,13 +225,35 @@ class MainWindow(QMainWindow):
             self.save_state(); self.log(f"New Path: {path}")
 
     def refresh_catalog(self):
+        self.btn_refresh.setEnabled(False)
+        self.btn_refresh.setText("⏳ Checking...")
         self.thread_list.clear()
+        
+        new_count = 0
+        dead_count = 0
+
         for board in BOARDS:
             try:
                 r = requests.get(f"https://a.4cdn.org/{board}/catalog.json", headers=HEADERS, timeout=10)
                 if r.status_code != 200: continue
+                
+                catalog_threads = []
+                for page in r.json():
+                    for t in page.get("threads", []):
+                        catalog_threads.append(t["no"])
+
                 with self.state_lock:
+                    # Cleanup: Remove threads from YES/NO that are no longer in the catalog
+                    for key in ["yes", "no"]:
+                        if board in self.state[key]:
+                            original_list = self.state[key][board]
+                            # Only keep it if it's still alive in the catalog
+                            self.state[key][board] = [tno for tno in original_list if tno in catalog_threads]
+                            dead_count += (len(original_list) - len(self.state[key][board]))
+
+                    # Add new threads to UI
                     yes, no = self.state["yes"].get(board, []), self.state["no"].get(board, [])
+                
                 for page in r.json():
                     for t in page.get("threads", []):
                         if t["no"] not in yes and t["no"] not in no:
@@ -237,8 +262,14 @@ class MainWindow(QMainWindow):
                             item = QListWidgetItem(f"/{board}/ {title}")
                             item.setData(Qt.ItemDataRole.UserRole, (board, t["no"]))
                             self.thread_list.addItem(item)
-            except: pass
+                            new_count += 1
+            except Exception as e:
+                self.log(f"Refresh error: {e}")
+        
         self.save_state()
+        self.btn_refresh.setEnabled(True)
+        self.btn_refresh.setText("🔄 Refresh")
+        self.log(f"Refresh done. Found {new_count} new. Cleaned {dead_count} archived.")
 
     def on_thread_clicked(self, item):
         board, tno = item.data(Qt.ItemDataRole.UserRole)
@@ -306,9 +337,21 @@ class MainWindow(QMainWindow):
                 path, raw_name = self.state["download_path"], self.state["names"].get(str(tno), str(tno))
             safe_name = sanitize_filename(raw_name) or str(tno)
             save_dir = os.path.join(path, safe_name)
-            os.makedirs(save_dir, exist_ok=True)
+            
             r = sess.get(f"https://a.4cdn.org/{board}/thread/{tno}.json", timeout=10)
+            
+            # If thread is archived or deleted (404), remove it from the list
+            if r.status_code == 404:
+                self.log(f"Thread dead, removing from queue: {raw_name}")
+                with self.state_lock:
+                    if tno in self.state["yes"][board]:
+                        self.state["yes"][board].remove(tno)
+                self.save_state()
+                return
+
             if r.status_code != 200: return
+            
+            os.makedirs(save_dir, exist_ok=True)
             new_f = 0
             for post in r.json().get("posts", []):
                 if "tim" in post:
