@@ -1,3 +1,10 @@
+# ============================================================
+# Project: HighResVault
+# Author: Justarandomguy789
+# Copyright (c) 2024-2026 Justarandomguy789
+# License: GNU General Public License v3.0
+# ============================================================
+
 import requests
 import os
 import json
