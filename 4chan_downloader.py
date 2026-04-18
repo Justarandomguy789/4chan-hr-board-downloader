@@ -28,6 +28,8 @@ from PyQt6.QtGui import QPixmap, QIcon, QFont
 
 # ==================== CONFIG ====================
 APP_NAME = "HighResVault"
+AUTHOR = "Justarandomguy789"
+YEARS = "2024-2026"
 BOARDS = ["hr"]
 DEFAULT_DIR = "4chan_downloads"
 STATE_FILE = "download_state.json"
@@ -63,6 +65,17 @@ QPushButton {
 }
 QPushButton:hover { background-color: #45475a; }
 QPushButton:disabled { color: #585b70; background-color: #181825; }
+
+/* Subtle styling for the detail button */
+#btn_about_small {
+    background-color: transparent;
+    color: #585b70;
+    font-size: 11px;
+    padding: 2px;
+    font-weight: normal;
+}
+#btn_about_small:hover { color: #89b4fa; }
+
 QListWidget {
     background-color: #11111b;
     border: 1px solid #313244;
@@ -88,30 +101,29 @@ def clean_html(raw_html):
 def sanitize_filename(name):
     return re.sub(r'[\\/*?:"<>|]', "", name).strip()[:100]
 
-# ==================== THREADS ====================
-class PreviewFetcher(QThread):
-    previews_ready = pyqtSignal(int, list)
-    def __init__(self, board, tno):
-        super().__init__()
-        self.board, self.tno = board, tno
-    def run(self):
-        try:
-            with requests.Session() as session:
-                session.headers.update(HEADERS)
-                r = session.get(f"https://a.4cdn.org/{self.board}/thread/{self.tno}.json", timeout=5)
-                if r.status_code != 200: return
-                posts = r.json().get("posts", [])
-                images_found = [(p["tim"], p["ext"]) for p in posts if "tim" in p][:4]
-                image_data = [None] * len(images_found)
-                def fetch_single(index, tim, ext):
-                    try:
-                        img_r = session.get(f"https://i.4cdn.org/{self.board}/{tim}{ext}", timeout=8)
-                        if img_r.status_code == 200: image_data[index] = img_r.content
-                    except: pass
-                with ThreadPoolExecutor(max_workers=4) as executor:
-                    for i, (tim, ext) in enumerate(images_found): executor.submit(fetch_single, i, tim, ext)
-                self.previews_ready.emit(self.tno, [img for img in image_data if img])
-        except: pass
+# ==================== DIALOGS ====================
+class AboutDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Project Info")
+        self.setFixedSize(350, 200)
+        layout = QVBoxLayout(self)
+        
+        info = QLabel(
+            f"<b>{APP_NAME}</b><br><br>"
+            f"Author: {AUTHOR}<br>"
+            f"Copyright © {YEARS}<br><br>"
+            "Licensed under GNU GPL v3.0"
+        )
+        info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        info.setStyleSheet("font-size: 13px;")
+        
+        close_btn = QPushButton("OK")
+        close_btn.clicked.connect(self.accept)
+        close_btn.setFixedWidth(80)
+        
+        layout.addWidget(info)
+        layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
 class ManageDialog(QDialog):
     def __init__(self, state, state_lock, parent=None):
@@ -148,6 +160,31 @@ class ManageDialog(QDialog):
                 if tno in self.state[key][board]:
                     self.state[key][board].remove(tno)
             self.changes_made = True
+
+# ==================== WORKER ====================
+class PreviewFetcher(QThread):
+    previews_ready = pyqtSignal(int, list)
+    def __init__(self, board, tno):
+        super().__init__()
+        self.board, self.tno = board, tno
+    def run(self):
+        try:
+            with requests.Session() as session:
+                session.headers.update(HEADERS)
+                r = session.get(f"https://a.4cdn.org/{self.board}/thread/{self.tno}.json", timeout=5)
+                if r.status_code != 200: return
+                posts = r.json().get("posts", [])
+                images_found = [(p["tim"], p["ext"]) for p in posts if "tim" in p][:4]
+                image_data = [None] * len(images_found)
+                def fetch_single(index, tim, ext):
+                    try:
+                        img_r = session.get(f"https://i.4cdn.org/{self.board}/{tim}{ext}", timeout=8)
+                        if img_r.status_code == 200: image_data[index] = img_r.content
+                    except: pass
+                with ThreadPoolExecutor(max_workers=4) as executor:
+                    for i, (tim, ext) in enumerate(images_found): executor.submit(fetch_single, i, tim, ext)
+                self.previews_ready.emit(self.tno, [img for img in image_data if img])
+        except: pass
 
 # ==================== MAIN UI ====================
 class MainWindow(QMainWindow):
@@ -189,14 +226,18 @@ class MainWindow(QMainWindow):
     def setup_ui(self):
         central = QWidget(); self.setCentralWidget(central)
         layout = QVBoxLayout(central); layout.setContentsMargins(15, 15, 15, 15)
+        
+        # TOP BAR (Reduced)
         top = QHBoxLayout()
         self.btn_refresh = QPushButton("🔄 Refresh"); self.btn_refresh.clicked.connect(self.refresh_catalog)
         self.btn_path = QPushButton("📂 Folder"); self.btn_path.clicked.connect(self.set_download_path)
         self.btn_manage = QPushButton("⚙ Manage"); self.btn_manage.clicked.connect(self.open_manage)
         self.btn_tray = QPushButton("🔽 Tray"); self.btn_tray.clicked.connect(self.minimize_to_tray)
+        
         for b in [self.btn_refresh, self.btn_path, self.btn_manage, self.btn_tray]: top.addWidget(b)
         layout.addLayout(top)
 
+        # CENTER SPLITTER
         splitter = QSplitter(Qt.Orientation.Horizontal)
         left_pane = QFrame(); left_layout = QVBoxLayout(left_pane)
         left_layout.addWidget(QLabel("Pending Threads", font=QFont("Segoe UI", 12, QFont.Weight.Bold)))
@@ -223,7 +264,23 @@ class MainWindow(QMainWindow):
         for b in [self.btn_yes, self.btn_skip, self.btn_no]: actions.addWidget(b); b.setEnabled(False)
         right_layout.addLayout(actions); splitter.addWidget(right_pane)
         splitter.setSizes([350, 850]); layout.addWidget(splitter)
-        self.log_widget = QListWidget(); self.log_widget.setMaximumHeight(100); layout.addWidget(self.log_widget)
+        
+        # BOTTOM AREA (Log + Subtle Credit)
+        bottom_area = QHBoxLayout()
+        self.log_widget = QListWidget(); self.log_widget.setMaximumHeight(80)
+        
+        # This is the "Subtle Detail" button
+        self.btn_about_subtle = QPushButton(f"© {YEARS} {AUTHOR}")
+        self.btn_about_subtle.setObjectName("btn_about_small")
+        self.btn_about_subtle.clicked.connect(self.open_about)
+        self.btn_about_subtle.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        bottom_area.addWidget(self.log_widget, 9)
+        bottom_area.addWidget(self.btn_about_subtle, 1, Qt.AlignmentFlag.AlignBottom)
+        layout.addLayout(bottom_area)
+
+    def open_about(self):
+        AboutDialog(self).exec()
 
     def set_download_path(self):
         path = QFileDialog.getExistingDirectory(self, "Select Folder", self.state["download_path"])
@@ -235,32 +292,13 @@ class MainWindow(QMainWindow):
         self.btn_refresh.setEnabled(False)
         self.btn_refresh.setText("⏳ Checking...")
         self.thread_list.clear()
-        
         new_count = 0
-        dead_count = 0
-
         for board in BOARDS:
             try:
                 r = requests.get(f"https://a.4cdn.org/{board}/catalog.json", headers=HEADERS, timeout=10)
                 if r.status_code != 200: continue
-                
-                catalog_threads = []
-                for page in r.json():
-                    for t in page.get("threads", []):
-                        catalog_threads.append(t["no"])
-
                 with self.state_lock:
-                    # Cleanup: Remove threads from YES/NO that are no longer in the catalog
-                    for key in ["yes", "no"]:
-                        if board in self.state[key]:
-                            original_list = self.state[key][board]
-                            # Only keep it if it's still alive in the catalog
-                            self.state[key][board] = [tno for tno in original_list if tno in catalog_threads]
-                            dead_count += (len(original_list) - len(self.state[key][board]))
-
-                    # Add new threads to UI
                     yes, no = self.state["yes"].get(board, []), self.state["no"].get(board, [])
-                
                 for page in r.json():
                     for t in page.get("threads", []):
                         if t["no"] not in yes and t["no"] not in no:
@@ -272,11 +310,10 @@ class MainWindow(QMainWindow):
                             new_count += 1
             except Exception as e:
                 self.log(f"Refresh error: {e}")
-        
         self.save_state()
         self.btn_refresh.setEnabled(True)
         self.btn_refresh.setText("🔄 Refresh")
-        self.log(f"Refresh done. Found {new_count} new. Cleaned {dead_count} archived.")
+        self.log(f"Refresh done. Found {new_count} new threads.")
 
     def on_thread_clicked(self, item):
         board, tno = item.data(Qt.ItemDataRole.UserRole)
@@ -344,20 +381,12 @@ class MainWindow(QMainWindow):
                 path, raw_name = self.state["download_path"], self.state["names"].get(str(tno), str(tno))
             safe_name = sanitize_filename(raw_name) or str(tno)
             save_dir = os.path.join(path, safe_name)
-            
             r = sess.get(f"https://a.4cdn.org/{board}/thread/{tno}.json", timeout=10)
-            
-            # If thread is archived or deleted (404), remove it from the list
             if r.status_code == 404:
-                self.log(f"Thread dead, removing from queue: {raw_name}")
                 with self.state_lock:
-                    if tno in self.state["yes"][board]:
-                        self.state["yes"][board].remove(tno)
-                self.save_state()
-                return
-
+                    if tno in self.state["yes"][board]: self.state["yes"][board].remove(tno)
+                self.save_state(); return
             if r.status_code != 200: return
-            
             os.makedirs(save_dir, exist_ok=True)
             new_f = 0
             for post in r.json().get("posts", []):
@@ -372,26 +401,17 @@ class MainWindow(QMainWindow):
             if new_f: self.log(f"Saved {new_f} images: {raw_name}")
         except: pass
 
-    # ==================== UPDATED TRAY LOGIC ====================
     def minimize_to_tray(self):
         self.hide()
-        if os.path.exists(ICON_PATH):
-            icon_img = PILImage.open(ICON_PATH)
-        else:
-            icon_img = PILImage.new('RGB', (64, 64), (30, 150, 100))
-            
+        icon_img = PILImage.open(ICON_PATH) if os.path.exists(ICON_PATH) else PILImage.new('RGB', (64, 64), (30, 150, 100))
         self.tray = pystray.Icon("4chan", icon_img, APP_NAME, menu=pystray.Menu(
             pystray.MenuItem("Restore", lambda: self.restore_window.emit()), 
             pystray.MenuItem("Exit", self.full_exit)))
         threading.Thread(target=self.tray.run, daemon=True).start()
 
     def _show_window_ui(self):
-        if hasattr(self, 'tray'): 
-            self.tray.stop()
-        self.show()
-        self.showNormal() 
-        self.activateWindow() 
-        self.raise_() 
+        if hasattr(self, 'tray'): self.tray.stop()
+        self.show(); self.showNormal(); self.activateWindow(); self.raise_() 
 
     def full_exit(self):
         self.is_running = False
