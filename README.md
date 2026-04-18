@@ -7,6 +7,6 @@ wasting bandwidth.
 
 Intuitive to use, easy to stop. Enjoy the high-res hunt, Anon.
 
-I suggest using the releases version rather than the .py version for easier usage, but if you really wanna use the .py one just use this:
+I suggest using the .exe version that you find on releases rather than the .py version for easier usage, but if you really wanna use the .py one just use this:
 
 pip install -r requirements.txt
