@@ -16,4 +16,5 @@ pip install -r requirements.txt
 <img width="1919" height="1016" alt="image" src="https://github.com/user-attachments/assets/ec64c90c-2653-465c-bd5c-68598b627476" />
 
 
+If some people will like it, I could do as well the same for other boards like /b/ or /gif/
 
