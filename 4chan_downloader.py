@@ -297,8 +297,15 @@ class MainWindow(QMainWindow):
             try:
                 r = requests.get(f"https://a.4cdn.org/{board}/catalog.json", headers=HEADERS, timeout=10)
                 if r.status_code != 200: continue
+                
+                # Fetch live threads to prune dead ones from the NO list
+                live_threads = {t["no"] for page in r.json() for t in page.get("threads", [])}
+                
                 with self.state_lock:
-                    yes, no = self.state["yes"].get(board, []), self.state["no"].get(board, [])
+                    self.state["no"][board] = [t for t in self.state["no"].get(board, []) if t in live_threads]
+                    yes = self.state["yes"].get(board, [])
+                    no = self.state["no"].get(board, [])
+                    
                 for page in r.json():
                     for t in page.get("threads", []):
                         if t["no"] not in yes and t["no"] not in no:
@@ -368,9 +375,22 @@ class MainWindow(QMainWindow):
         with requests.Session() as sess:
             sess.headers.update(HEADERS)
             while self.is_running:
+                # 1. Process and implicitly clean YES list via 404 handling in _process
                 with self.state_lock: yes_copy = {b: list(tnos) for b, tnos in self.state["yes"].items()}
                 for board, tnos in yes_copy.items():
                     for tno in tnos: self._process(board, tno, sess)
+                
+                # 2. Quietly prune NO list via lightweight threads.json to save bandwidth
+                for board in BOARDS:
+                    try:
+                        r = sess.get(f"https://a.4cdn.org/{board}/threads.json", timeout=10)
+                        if r.status_code == 200:
+                            live = {t["no"] for p in r.json() for t in p.get("threads", [])}
+                            with self.state_lock:
+                                self.state["no"][board] = [t for t in self.state["no"].get(board, []) if t in live]
+                    except: pass
+                self.save_state()
+
                 for _ in range(CHECK_INTERVAL):
                     if not self.is_running: return
                     time.sleep(1)
